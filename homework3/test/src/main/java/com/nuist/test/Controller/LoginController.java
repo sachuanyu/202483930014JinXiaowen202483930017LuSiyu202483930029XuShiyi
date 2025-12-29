@@ -1,0 +1,110 @@
+package com.nuist.test.Controller;
+
+import com.nuist.test.Service.PlayerService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * 登录控制器（适配 Vue 前端 POST + JSON 参数 + 跨域）
+ * 修复点：补充日志、兼容Spring版本、增加PlayerService空校验
+ */
+// 简化跨域配置（兼容低版本Spring，避免配置过复杂导致失效）
+@CrossOrigin(origins = "http://localhost:5173")
+@RestController
+@RequestMapping("/api") // 与前端 /api/login 路径匹配
+public class LoginController {
+
+    // 增加日志，方便排查报错
+    private static final Logger log = LoggerFactory.getLogger(LoginController.class);
+
+    @Autowired(required = false) // 允许临时为null（方便排查注入问题）
+    private PlayerService playerService;
+
+    /**
+     * 登录接口（POST + JSON 参数）
+     * @param loginRequest 前端传入的用户名密码DTO
+     * @return 登录结果（包含success、message字段）
+     */
+    @PostMapping("/login")
+    public ResponseEntity<Map<String, Object>> login(@RequestBody LoginRequest loginRequest) {
+        Map<String, Object> response = new HashMap<>();
+
+        // 1. 非空校验（前端参数）
+        if (loginRequest.getUsername() == null || loginRequest.getUsername().trim().isEmpty()) {
+            response.put("success", false);
+            response.put("message", "用户名不能为空");
+            return ResponseEntity.badRequest().body(response);
+        }
+        if (loginRequest.getPassword() == null || loginRequest.getPassword().trim().isEmpty()) {
+            response.put("success", false);
+            response.put("message", "密码不能为空");
+            return ResponseEntity.badRequest().body(response);
+        }
+
+        // 2. 校验PlayerService是否注入成功（关键！）
+        if (playerService == null) {
+            log.error("PlayerService 注入失败！请检查PlayerService是否加了@Service注解");
+            response.put("success", false);
+            response.put("message", "服务器内部错误（PlayerService未注入）");
+            return ResponseEntity.status(500).body(response);
+        }
+
+        // 3. 业务逻辑
+        String username = loginRequest.getUsername().trim();
+        String password = loginRequest.getPassword().trim();
+        boolean loginSuccess = false;
+
+        try {
+            // 调用登录服务（加try-catch避免业务层报错导致接口崩溃）
+            loginSuccess = playerService.loginService(username, password);
+        } catch (Exception e) {
+            log.error("登录业务层报错：", e);
+            response.put("success", false);
+            response.put("message", "登录失败：" + e.getMessage());
+            return ResponseEntity.status(500).body(response);
+        }
+
+        // 4. 返回结果
+        if (loginSuccess) {
+            response.put("success", true);
+            response.put("message", "登录成功");
+            return ResponseEntity.ok(response);
+        } else {
+            response.put("success", false);
+            response.put("message", "用户名或密码错误");
+            return ResponseEntity.status(401).body(response);
+        }
+    }
+
+    /**
+     * 内部静态DTO类：接收前端JSON参数
+     * （必须保留getter/setter，Spring才能解析JSON）
+     */
+    static class LoginRequest {
+        private String username;
+        private String password;
+
+        // Getter & Setter（缺一不可）
+        public String getUsername() {
+            return username;
+        }
+
+        public void setUsername(String username) {
+            this.username = username;
+        }
+
+        public String getPassword() {
+            return password;
+        }
+
+        public void setPassword(String password) {
+            this.password = password;
+        }
+    }
+}
